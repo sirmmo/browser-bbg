@@ -1,0 +1,59 @@
+<div class="game-container">
+  <header class="header">
+    <h1>Base Builder</h1>
+    <div class="header-controls">
+      <button class="btn-secondary" routerLink="/party">Party</button>
+      <button class="btn-secondary" (click)="logout()">Logout</button>
+    </div>
+  </header>
+
+  <div class="main-content">
+    <aside class="sidebar">
+      <div class="resources" *ngIf="profile">
+        <h2>Resources</h2>
+        <div class="resource-item">💰 Coins: {{ profile.coins }}</div>
+        <div class="resource-item">🪵 Wood: {{ profile.wood }}</div>
+        <div class="resource-item">🪨 Stone: {{ profile.stone }}</div>
+        <div class="resource-item">🌾 Food: {{ profile.food }}</div>
+        <button class="btn-primary" (click)="collectResources()">Collect Resources</button>
+      </div>
+
+      <div class="buildings">
+        <h2>Buildings</h2>
+        <div *ngFor="let type of buildingTypes" class="building-card"
+             [class.selected]="selectedBuildingType?.id === type.id"
+             (click)="selectBuildingType(type)">
+          <div class="building-icon">{{ type.icon }}</div>
+          <div class="building-name">{{ type.name }}</div>
+          <div class="building-cost">
+            <span *ngIf="type.cost_coins">💰{{ type.cost_coins }}</span>
+            <span *ngIf="type.cost_wood">🪵{{ type.cost_wood }}</span>
+            <span *ngIf="type.cost_stone">🪨{{ type.cost_stone }}</span>
+            <span *ngIf="type.cost_food">🌾{{ type.cost_food }}</span>
+          </div>
+          <div class="building-production">+{{ type.production_rate }}/min</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="game-area">
+      <div class="message" *ngIf="message">{{ message }}</div>
+
+      <div class="grid">
+        <div *ngFor="let row of grid" class="grid-row">
+          <div *ngFor="let cell of row" class="grid-cell"
+               [class.has-building]="cell.building"
+               [class.selected]="selectedBuildingType"
+               (click)="placeBuilding(cell.x, cell.y)">
+            <div *ngIf="cell.building" class="building"
+                 [class.building-complete]="cell.building.is_built"
+                 (click)="$event.stopPropagation(); deleteBuilding(cell.building)">
+              <div class="building-icon-large">{{ getBuildingIcon(cell.building) }}</div>
+              <div class="building-status">{{ getBuildingStatus(cell.building) }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
