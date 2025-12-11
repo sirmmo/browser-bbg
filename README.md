@@ -1,15 +1,31 @@
-# Base Builder Game
+# Base Builder Game with Tower Defense
 
-A fun base-building game where players can construct buildings, gather resources, and optionally play together in parties. Perfect for downtime between sessions!
+A fun base-building game where players can construct buildings, gather resources, defend against enemy waves, and optionally play together in parties. Perfect for downtime between sessions!
 
 ## Features
 
+### Base Building
 - **Single Player**: Build your base, collect resources, and expand your empire
-- **Multiplayer Parties**: Create or join parties to play with friends
 - **Resource Management**: Manage coins, wood, stone, and food
 - **Building System**: Place various buildings that generate resources over time
-- **Party Chat**: Communicate with party members
 - **Real-time Resource Generation**: Buildings produce resources automatically
+- **Leveling System**: Gain experience and level up to unlock new content
+
+### Tower Defense (NEW!)
+- **Defensive Towers**: Build and upgrade towers to defend your base
+- **Enemy Waves**: Fight off increasingly difficult waves of enemies
+- **Tower Upgrades**: Evolve your towers through multiple tiers
+  - Physical Path: Arrow → Crossbow → Ballista → Cannon
+  - Magic Path: Magic → Wizard → Arcane
+- **Enemy Variety**: Face Goblins, Orcs, Trolls, and Dragons
+- **Progressive Difficulty**: Enemy waves scale with your progression
+- **Rewards**: Earn coins and XP from defeating enemies
+- **Strategic Gameplay**: Unlock at level 2, plan tower placement
+
+### Multiplayer
+- **Multiplayer Parties**: Create or join parties to play with friends
+- **Party Chat**: Communicate with party members
+- **Shared Progress Viewing**: See other players' levels and waves survived
 
 ## Tech Stack
 
@@ -40,6 +56,11 @@ python manage.py migrate
 3. Initialize game data (building types):
 ```bash
 python manage.py init_game_data
+```
+
+4. Initialize tower defense data (weapons and enemies):
+```bash
+python manage.py init_tower_defense
 ```
 
 4. Create a superuser (optional, for admin access):
@@ -94,6 +115,51 @@ The frontend will be available at http://localhost:4200
 - **Farm** 🌾: Produces food
 - **Trading Post** 🏪: Advanced building with high coin production
 
+### Tower Defense Mode
+
+Tower defense unlocks at **Level 2** and provides an exciting combat dimension to the game.
+
+#### Tower Types & Upgrades
+
+**Physical Damage Path:**
+1. **Arrow Tower** 🏹 (Level 2) - 10 damage, 3 range, 1.0 fire rate
+2. **Crossbow Tower** 🏹 (Level 4) - 20 damage, 4 range, 1.2 fire rate
+3. **Ballista Tower** 🏹 (Level 7) - 40 damage, 5 range, 0.8 fire rate
+4. **Cannon Tower** 💣 (Level 10) - 80 damage, 6 range, 0.5 fire rate
+
+**Magic Damage Path:**
+1. **Magic Tower** ✨ (Level 3) - 15 damage, 4 range, 1.5 fire rate
+2. **Wizard Tower** 🧙 (Level 6) - 35 damage, 5 range, 1.0 fire rate
+3. **Arcane Tower** 🔮 (Level 9) - 70 damage, 7 range, 1.2 fire rate
+
+#### Enemy Types
+
+- **Goblin** 👺 (Wave 1+) - 30 HP, fast, 5 damage, rewards: 10 coins, 15 XP
+- **Orc** 👹 (Wave 2+) - 60 HP, medium speed, 10 damage, rewards: 20 coins, 25 XP
+- **Troll** 🧌 (Wave 4+) - 120 HP, slow, 20 damage, rewards: 40 coins, 50 XP
+- **Dragon** 🐉 (Wave 7+) - 250 HP, boss, 50 damage, rewards: 100 coins, 150 XP
+
+#### How to Play
+
+1. Build resource buildings to gather materials
+2. Reach **Level 2** to unlock tower defense
+3. Place towers strategically on your grid
+4. Click "Start Wave" to spawn enemies
+5. Towers automatically attack enemies in range
+6. Defeat all enemies to complete the wave
+7. Earn coins and XP as rewards
+8. Upgrade towers between waves for better performance
+9. Higher waves spawn more and stronger enemies
+10. Level up to unlock advanced towers
+
+#### Leveling System
+
+- **Level Formula**: Level = floor(XP / 100) + 1
+- Defeat enemies to gain XP
+- Complete waves for bonus XP (20 * wave number)
+- Higher levels unlock better towers and buildings
+- Buildings and towers have minimum level requirements
+
 ### Multiplayer (Party Mode)
 
 1. Navigate to the **Party** page
@@ -137,6 +203,19 @@ The frontend will be available at http://localhost:4200
 - `GET /api/parties/{id}/members/` - List party members
 - `GET /api/parties/{id}/messages/` - Get party messages
 - `POST /api/parties/{id}/send_message/` - Send a message to party
+
+### Tower Defense
+- `GET /api/weapon-types/` - List all weapon/tower types
+- `GET /api/towers/` - List player's towers
+- `POST /api/towers/` - Create a new tower
+- `POST /api/towers/{id}/upgrade/` - Upgrade a tower
+- `DELETE /api/towers/{id}/` - Delete a tower
+- `GET /api/waves/` - List player's waves
+- `GET /api/waves/current/` - Get current active wave
+- `POST /api/waves/start/` - Start a new enemy wave
+- `POST /api/waves/{id}/complete/` - Mark wave as complete
+- `GET /api/enemies/` - List enemies (filter by wave_id)
+- `POST /api/enemies/{id}/damage/` - Apply damage to an enemy
 
 ## Development
 
