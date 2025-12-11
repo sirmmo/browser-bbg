@@ -7,11 +7,15 @@ from django.shortcuts import get_object_or_404
 import random
 import string
 
-from .models import Party, PlayerProfile, BuildingType, Building, PartyMessage
+from .models import (
+    Party, PlayerProfile, BuildingType, Building, PartyMessage,
+    WeaponType, Tower, EnemyType, Wave, Enemy
+)
 from .serializers import (
     UserSerializer, RegisterSerializer, PartySerializer, PlayerProfileSerializer,
     BuildingTypeSerializer, BuildingSerializer, BuildingCreateSerializer,
-    PartyMessageSerializer
+    PartyMessageSerializer, WeaponTypeSerializer, TowerSerializer,
+    TowerCreateSerializer, EnemySerializer, WaveSerializer
 )
 
 
@@ -168,3 +172,126 @@ class PartyViewSet(viewsets.ModelViewSet):
 
         serializer = PartyMessageSerializer(message)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+# Tower Defense Views
+
+class WeaponTypeViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = WeaponType.objects.all()
+    serializer_class = WeaponTypeSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class TowerViewSet(viewsets.ModelViewSet):
+    serializer_class = TowerSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Tower.objects.filter(player=self.request.user.profile)
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return TowerCreateSerializer
+        return TowerSerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+
+    @action(detail=True, methods=['post'])
+    def upgrade(self, request, pk=None):
+        tower = self.get_object()
+        if tower.upgrade():
+            serializer = self.get_serializer(tower)
+            return Response({'success': True, 'tower': serializer.data})
+        return Response({'error': 'Cannot upgrade tower'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class WaveViewSet(viewsets.ModelViewSet):
+    serializer_class = WaveSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Wave.objects.filter(player=self.request.user.profile)
+
+    @action(detail=False, methods=['get'])
+    def current(self, request):
+        """Get current active wave"""
+        wave = Wave.objects.filter(player=request.user.profile, is_active=True).first()
+        if wave:
+            serializer = self.get_serializer(wave)
+            return Response(serializer.data)
+        return Response({'message': 'No active wave'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'])
+    def start(self, request):
+        """Start a new wave"""
+        from .models import Enemy, EnemyType
+        import random
+
+        player = request.user.profile
+
+        # Check if player has active wave
+        if Wave.objects.filter(player=player, is_active=True).exists():
+            return Response({'error': 'Wave already active'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Calculate wave number
+        last_wave = Wave.objects.filter(player=player).first()
+        wave_number = (last_wave.wave_number + 1) if last_wave else 1
+
+        # Create wave
+        wave = Wave.objects.create(player=player, wave_number=wave_number)
+
+        # Spawn enemies based on wave number
+        enemy_types = list(EnemyType.objects.filter(min_wave__lte=wave_number))
+        num_enemies = 5 + (wave_number * 2)  # Scaling difficulty
+
+        for i in range(num_enemies):
+            enemy_type = random.choice(enemy_types)
+            Enemy.objects.create(
+                wave=wave,
+                enemy_type=enemy_type,
+                current_health=enemy_type.health,
+                position_x=0,
+                position_y=random.randint(0, 9)
+            )
+
+        wave.total_enemies = num_enemies
+        wave.save()
+
+        serializer = self.get_serializer(wave)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def complete(self, request, pk=None):
+        """Mark wave as complete"""
+        wave = self.get_object()
+        success = request.data.get('success', True)
+        wave.complete(success=success)
+        return Response({'message': 'Wave completed'})
+
+
+class EnemyViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = EnemySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        wave_id = self.request.query_params.get('wave_id')
+        if wave_id:
+            return Enemy.objects.filter(wave_id=wave_id)
+        return Enemy.objects.filter(wave__player=self.request.user.profile, is_alive=True)
+
+    @action(detail=True, methods=['post'])
+    def damage(self, request, pk=None):
+        """Apply damage to an enemy"""
+        enemy = self.get_object()
+        damage_amount = request.data.get('damage', 0)
+
+        if enemy.take_damage(damage_amount):
+            # Enemy died
+            return Response({'killed': True, 'rewards': {
+                'coins': enemy.enemy_type.reward_coins,
+                'xp': enemy.enemy_type.reward_xp
+            }})
+        return Response({'killed': False, 'current_health': enemy.current_health})
