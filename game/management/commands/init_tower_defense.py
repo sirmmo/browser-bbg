@@ -135,11 +135,13 @@ class Command(BaseCommand):
         wizard_tower.upgrade_path = arcane_tower
         wizard_tower.save()
 
-        # Create enemy types
+        # Create enemy types - fully templated for easy expansion!
+        # You can add new enemy types by simply adding to this list or via Django admin
         enemies = [
+            # Early game enemies (Wave 1-3)
             {
                 'name': 'Goblin',
-                'description': 'Weak but fast enemy',
+                'description': 'Weak but fast enemy - rushes your defenses',
                 'health': 30,
                 'speed': 2.0,
                 'damage': 5,
@@ -149,8 +151,19 @@ class Command(BaseCommand):
                 'min_wave': 1,
             },
             {
+                'name': 'Skeleton',
+                'description': 'Fragile undead warrior',
+                'health': 25,
+                'speed': 1.8,
+                'damage': 4,
+                'reward_coins': 8,
+                'reward_xp': 12,
+                'icon': '💀',
+                'min_wave': 1,
+            },
+            {
                 'name': 'Orc',
-                'description': 'Tough warrior',
+                'description': 'Tough warrior with balanced stats',
                 'health': 60,
                 'speed': 1.5,
                 'damage': 10,
@@ -160,8 +173,21 @@ class Command(BaseCommand):
                 'min_wave': 2,
             },
             {
+                'name': 'Wolf',
+                'description': 'Fast predator that hunts in packs',
+                'health': 40,
+                'speed': 2.5,
+                'damage': 8,
+                'reward_coins': 15,
+                'reward_xp': 20,
+                'icon': '🐺',
+                'min_wave': 3,
+            },
+
+            # Mid game enemies (Wave 4-6)
+            {
                 'name': 'Troll',
-                'description': 'Heavily armored',
+                'description': 'Heavily armored tank - slow but durable',
                 'health': 120,
                 'speed': 1.0,
                 'damage': 20,
@@ -171,8 +197,32 @@ class Command(BaseCommand):
                 'min_wave': 4,
             },
             {
+                'name': 'Dark Knight',
+                'description': 'Armored knight with high damage',
+                'health': 90,
+                'speed': 1.3,
+                'damage': 25,
+                'reward_coins': 35,
+                'reward_xp': 45,
+                'icon': '⚔️',
+                'min_wave': 5,
+            },
+            {
+                'name': 'Wraith',
+                'description': 'Ethereal spirit - fast and elusive',
+                'health': 70,
+                'speed': 2.2,
+                'damage': 15,
+                'reward_coins': 30,
+                'reward_xp': 40,
+                'icon': '👻',
+                'min_wave': 6,
+            },
+
+            # Late game enemies (Wave 7+)
+            {
                 'name': 'Dragon',
-                'description': 'Flying boss enemy',
+                'description': 'Flying boss - high HP and damage',
                 'health': 250,
                 'speed': 1.2,
                 'damage': 50,
@@ -180,6 +230,39 @@ class Command(BaseCommand):
                 'reward_xp': 150,
                 'icon': '🐉',
                 'min_wave': 7,
+            },
+            {
+                'name': 'Demon',
+                'description': 'Powerful demon from the abyss',
+                'health': 180,
+                'speed': 1.6,
+                'damage': 40,
+                'reward_coins': 80,
+                'reward_xp': 120,
+                'icon': '😈',
+                'min_wave': 8,
+            },
+            {
+                'name': 'Giant',
+                'description': 'Massive creature with devastating power',
+                'health': 300,
+                'speed': 0.8,
+                'damage': 60,
+                'reward_coins': 120,
+                'reward_xp': 180,
+                'icon': '🧟',
+                'min_wave': 9,
+            },
+            {
+                'name': 'Ancient Dragon',
+                'description': 'Legendary boss - ultimate challenge',
+                'health': 500,
+                'speed': 1.0,
+                'damage': 100,
+                'reward_coins': 250,
+                'reward_xp': 300,
+                'icon': '🐲',
+                'min_wave': 12,
             },
         ]
 

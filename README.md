@@ -132,12 +132,26 @@ Tower defense unlocks at **Level 2** and provides an exciting combat dimension t
 2. **Wizard Tower** 🧙 (Level 6) - 35 damage, 5 range, 1.0 fire rate
 3. **Arcane Tower** 🔮 (Level 9) - 70 damage, 7 range, 1.2 fire rate
 
-#### Enemy Types
+#### Enemy Types (11 Total - Fully Templated!)
 
-- **Goblin** 👺 (Wave 1+) - 30 HP, fast, 5 damage, rewards: 10 coins, 15 XP
-- **Orc** 👹 (Wave 2+) - 60 HP, medium speed, 10 damage, rewards: 20 coins, 25 XP
-- **Troll** 🧌 (Wave 4+) - 120 HP, slow, 20 damage, rewards: 40 coins, 50 XP
-- **Dragon** 🐉 (Wave 7+) - 250 HP, boss, 50 damage, rewards: 100 coins, 150 XP
+**Early Game (Wave 1-3):**
+- **Skeleton** 💀 - 25 HP, fast (1.8 speed), fragile undead
+- **Goblin** 👺 - 30 HP, very fast (2.0 speed), rusher
+- **Orc** 👹 - 60 HP, balanced (1.5 speed), tough warrior
+- **Wolf** 🐺 - 40 HP, fastest (2.5 speed), pack hunter
+
+**Mid Game (Wave 4-6):**
+- **Troll** 🧌 - 120 HP, slow (1.0 speed), heavy tank
+- **Dark Knight** ⚔️ - 90 HP, medium (1.3 speed), high damage
+- **Wraith** 👻 - 70 HP, fast (2.2 speed), ethereal spirit
+
+**Late Game (Wave 7+):**
+- **Dragon** 🐉 - 250 HP, flying boss
+- **Demon** 😈 - 180 HP, powerful abyss creature
+- **Giant** 🧟 - 300 HP, devastating titan
+- **Ancient Dragon** 🐲 - 500 HP, legendary ultimate boss
+
+> **Note**: Enemy types are fully templated! Add new monsters anytime via Django admin or management commands without code changes. See `ENEMY_TEMPLATE_SYSTEM.md` for details.
 
 #### How to Play
 
