@@ -32,8 +32,8 @@
 
     <div class="party-section" *ngIf="profile?.party">
       <div class="current-party">
-        <h2>{{ profile.party.name }}</h2>
-        <p>Party Code: <strong>{{ profile.party.code }}</strong></p>
+        <h2>{{ profile.party?.name }}</h2>
+        <p>Party Code: <strong>{{ profile.party?.code }}</strong></p>
         <button (click)="leaveParty()" class="btn-danger">Leave Party</button>
       </div>
 
