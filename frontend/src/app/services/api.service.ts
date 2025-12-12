@@ -55,7 +55,7 @@ export interface Party {
   providedIn: 'root'
 })
 export class ApiService {
-  private apiUrl = 'http://localhost:8000/api';
+  private apiUrl = 'http://51.15.160.236:9899/api';
 
   constructor(private http: HttpClient) { }
 
