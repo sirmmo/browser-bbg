@@ -1,8 +1,13 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
+from django.utils import timezone
+from datetime import timedelta
 from .models import (
     Party, PlayerProfile, BuildingType, Building, PartyMessage,
-    WeaponType, Tower, EnemyType, Wave, Enemy, WorkerType, Worker
+    WeaponType, Tower, EnemyType, Wave, Enemy, WorkerType, Worker,
+    MaterialType, PlayerMaterial, TechnologyType, PlayerTechnology,
+    CraftingRecipe, MaterialRequirement, TechnologyMaterialRequirement,
+    PlayerItem, TradeOffer
 )
 
 
@@ -313,3 +318,345 @@ class WorkerHireSerializer(serializers.ModelSerializer):
             worker_type=worker_type
         )
         return worker
+
+
+# Material System Serializers
+
+class MaterialTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MaterialType
+        fields = '__all__'
+
+
+class PlayerMaterialSerializer(serializers.ModelSerializer):
+    material_detail = MaterialTypeSerializer(source='material_type', read_only=True)
+
+    class Meta:
+        model = PlayerMaterial
+        fields = ['id', 'material_type', 'material_detail', 'quantity', 'last_updated']
+        read_only_fields = ['last_updated']
+
+
+# Technology System Serializers
+
+class TechnologyMaterialRequirementSerializer(serializers.ModelSerializer):
+    material_detail = MaterialTypeSerializer(source='material_type', read_only=True)
+
+    class Meta:
+        model = TechnologyMaterialRequirement
+        fields = ['id', 'material_type', 'material_detail', 'quantity']
+
+
+class TechnologyTypeSerializer(serializers.ModelSerializer):
+    material_requirements = TechnologyMaterialRequirementSerializer(many=True, read_only=True)
+    prerequisite_name = serializers.CharField(source='prerequisite.name', read_only=True)
+
+    class Meta:
+        model = TechnologyType
+        fields = '__all__'
+
+
+class PlayerTechnologySerializer(serializers.ModelSerializer):
+    technology_detail = TechnologyTypeSerializer(source='technology_type', read_only=True)
+    progress = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PlayerTechnology
+        fields = ['id', 'technology_type', 'technology_detail', 'research_started',
+                  'research_completed', 'is_researching', 'is_completed', 'progress']
+        read_only_fields = ['research_started', 'research_completed', 'is_researching', 'is_completed']
+
+    def get_progress(self, obj):
+        if obj.is_completed:
+            return 100
+        if obj.is_researching:
+            elapsed = (timezone.now() - obj.research_started).total_seconds()
+            total = obj.technology_type.research_time
+            return min(100, int((elapsed / total) * 100))
+        return 0
+
+
+class ResearchStartSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PlayerTechnology
+        fields = ['technology_type']
+
+    def validate(self, data):
+        request = self.context.get('request')
+        player = request.user.profile
+        technology_type = data['technology_type']
+
+        # Check level requirement
+        if player.level < technology_type.min_level:
+            raise serializers.ValidationError(f"Level {technology_type.min_level} required")
+
+        # Check if already researched
+        if PlayerTechnology.objects.filter(
+            player=player,
+            technology_type=technology_type,
+            is_completed=True
+        ).exists():
+            raise serializers.ValidationError("Already researched")
+
+        # Check if already researching
+        if PlayerTechnology.objects.filter(
+            player=player,
+            technology_type=technology_type,
+            is_researching=True
+        ).exists():
+            raise serializers.ValidationError("Already researching")
+
+        # Check prerequisite
+        if technology_type.prerequisite:
+            if not PlayerTechnology.objects.filter(
+                player=player,
+                technology_type=technology_type.prerequisite,
+                is_completed=True
+            ).exists():
+                raise serializers.ValidationError(
+                    f"Prerequisite technology '{technology_type.prerequisite.name}' required"
+                )
+
+        # Check coins
+        if player.coins < technology_type.cost_coins:
+            raise serializers.ValidationError("Not enough coins")
+
+        # Check material requirements
+        for req in technology_type.material_requirements.all():
+            player_mat = PlayerMaterial.objects.filter(
+                player=player,
+                material_type=req.material_type
+            ).first()
+            if not player_mat or player_mat.quantity < req.quantity:
+                raise serializers.ValidationError(
+                    f"Not enough {req.material_type.name} (need {req.quantity})"
+                )
+
+        return data
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        player = request.user.profile
+        technology_type = validated_data['technology_type']
+
+        # Deduct costs
+        player.coins -= technology_type.cost_coins
+        player.save()
+
+        # Deduct materials
+        for req in technology_type.material_requirements.all():
+            player_mat = PlayerMaterial.objects.get(
+                player=player,
+                material_type=req.material_type
+            )
+            player_mat.remove_quantity(req.quantity)
+
+        # Start research
+        research = PlayerTechnology.objects.create(
+            player=player,
+            technology_type=technology_type
+        )
+        return research
+
+
+# Crafting System Serializers
+
+class MaterialRequirementSerializer(serializers.ModelSerializer):
+    material_detail = MaterialTypeSerializer(source='material_type', read_only=True)
+
+    class Meta:
+        model = MaterialRequirement
+        fields = ['id', 'material_type', 'material_detail', 'quantity']
+
+
+class CraftingRecipeSerializer(serializers.ModelSerializer):
+    material_requirements = MaterialRequirementSerializer(many=True, read_only=True)
+    required_technology_name = serializers.CharField(source='required_technology.name', read_only=True)
+
+    class Meta:
+        model = CraftingRecipe
+        fields = '__all__'
+
+
+class PlayerItemSerializer(serializers.ModelSerializer):
+    recipe_detail = CraftingRecipeSerializer(source='recipe', read_only=True)
+    equipped_to = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PlayerItem
+        fields = ['id', 'recipe', 'recipe_detail', 'quantity', 'equipped_to_building',
+                  'equipped_to', 'created_at', 'last_updated']
+        read_only_fields = ['created_at', 'last_updated']
+
+    def get_equipped_to(self, obj):
+        if obj.equipped_to_building:
+            return {
+                'building_id': obj.equipped_to_building.id,
+                'building_type': obj.equipped_to_building.building_type.name,
+                'position': f"({obj.equipped_to_building.position_x}, {obj.equipped_to_building.position_y})"
+            }
+        return None
+
+
+class CraftItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PlayerItem
+        fields = ['recipe']
+
+    def validate(self, data):
+        request = self.context.get('request')
+        player = request.user.profile
+        recipe = data['recipe']
+
+        # Check level requirement
+        if player.level < recipe.min_level:
+            raise serializers.ValidationError(f"Level {recipe.min_level} required")
+
+        # Check if required technology is researched
+        if recipe.required_technology:
+            if not PlayerTechnology.objects.filter(
+                player=player,
+                technology_type=recipe.required_technology,
+                is_completed=True
+            ).exists():
+                raise serializers.ValidationError(
+                    f"Technology '{recipe.required_technology.name}' required"
+                )
+
+        # Check if required building exists
+        if recipe.required_building:
+            if not Building.objects.filter(
+                player=player,
+                building_type__name=recipe.required_building,
+                is_built=True
+            ).exists():
+                raise serializers.ValidationError(
+                    f"Building '{recipe.required_building}' required"
+                )
+
+        # Check coins
+        if player.coins < recipe.cost_coins:
+            raise serializers.ValidationError("Not enough coins")
+
+        # Check material requirements
+        for req in recipe.material_requirements.all():
+            player_mat = PlayerMaterial.objects.filter(
+                player=player,
+                material_type=req.material_type
+            ).first()
+            if not player_mat or player_mat.quantity < req.quantity:
+                raise serializers.ValidationError(
+                    f"Not enough {req.material_type.name} (need {req.quantity})"
+                )
+
+        return data
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        player = request.user.profile
+        recipe = validated_data['recipe']
+
+        # Deduct costs
+        player.coins -= recipe.cost_coins
+        player.save()
+
+        # Deduct materials
+        for req in recipe.material_requirements.all():
+            player_mat = PlayerMaterial.objects.get(
+                player=player,
+                material_type=req.material_type
+            )
+            player_mat.remove_quantity(req.quantity)
+
+        # Create or update item
+        item, created = PlayerItem.objects.get_or_create(
+            player=player,
+            recipe=recipe,
+            defaults={'quantity': 1}
+        )
+        if not created:
+            item.quantity += 1
+            item.save()
+
+        return item
+
+
+# Trading System Serializers
+
+class TradeOfferSerializer(serializers.ModelSerializer):
+    seller_name = serializers.CharField(source='seller.user.username', read_only=True)
+    buyer_name = serializers.CharField(source='buyer.user.username', read_only=True)
+    material_offered_detail = MaterialTypeSerializer(source='material_offered', read_only=True)
+    item_offered_detail = CraftingRecipeSerializer(source='item_offered', read_only=True)
+    price_material_detail = MaterialTypeSerializer(source='price_material', read_only=True)
+    is_expired = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TradeOffer
+        fields = ['id', 'seller', 'seller_name', 'buyer', 'buyer_name', 'party_only',
+                  'trade_type', 'material_offered', 'material_offered_detail', 'material_quantity',
+                  'item_offered', 'item_offered_detail', 'item_quantity',
+                  'price_coins', 'price_material', 'price_material_detail', 'price_material_quantity',
+                  'status', 'created_at', 'expires_at', 'completed_at', 'is_expired']
+        read_only_fields = ['seller', 'status', 'created_at', 'completed_at']
+
+    def get_is_expired(self, obj):
+        return obj.status == 'pending' and timezone.now() > obj.expires_at
+
+
+class CreateTradeOfferSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TradeOffer
+        fields = ['trade_type', 'material_offered', 'material_quantity',
+                  'item_offered', 'item_quantity', 'price_coins',
+                  'price_material', 'price_material_quantity', 'buyer', 'party_only']
+
+    def validate(self, data):
+        request = self.context.get('request')
+        player = request.user.profile
+        trade_type = data['trade_type']
+
+        # Validate trade type consistency
+        if trade_type == 'material':
+            if not data.get('material_offered') or data.get('material_quantity', 0) <= 0:
+                raise serializers.ValidationError("Material and quantity required for material trade")
+            # Check if seller has the materials
+            player_mat = PlayerMaterial.objects.filter(
+                player=player,
+                material_type=data['material_offered']
+            ).first()
+            if not player_mat or player_mat.quantity < data['material_quantity']:
+                raise serializers.ValidationError("Not enough materials to offer")
+
+        elif trade_type == 'item':
+            if not data.get('item_offered') or data.get('item_quantity', 0) <= 0:
+                raise serializers.ValidationError("Item and quantity required for item trade")
+            # Check if seller has the items
+            player_item = PlayerItem.objects.filter(
+                player=player,
+                recipe=data['item_offered']
+            ).first()
+            if not player_item or player_item.quantity < data['item_quantity']:
+                raise serializers.ValidationError("Not enough items to offer")
+
+        # Validate price
+        if data.get('price_coins', 0) <= 0 and (
+            not data.get('price_material') or data.get('price_material_quantity', 0) <= 0
+        ):
+            raise serializers.ValidationError("Must specify either coin price or material price")
+
+        return data
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        player = request.user.profile
+
+        # Set expiration (7 days from now)
+        expires_at = timezone.now() + timedelta(days=7)
+
+        trade_offer = TradeOffer.objects.create(
+            seller=player,
+            expires_at=expires_at,
+            **validated_data
+        )
+        return trade_offer

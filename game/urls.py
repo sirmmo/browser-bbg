@@ -5,7 +5,11 @@ from .views import (
     register, PlayerProfileViewSet, BuildingTypeViewSet,
     BuildingViewSet, PartyViewSet, WeaponTypeViewSet,
     TowerViewSet, WaveViewSet, EnemyViewSet,
-    WorkerTypeViewSet, WorkerViewSet
+    WorkerTypeViewSet, WorkerViewSet,
+    MaterialTypeViewSet, PlayerMaterialViewSet,
+    TechnologyTypeViewSet, PlayerTechnologyViewSet,
+    CraftingRecipeViewSet, PlayerItemViewSet,
+    TradeOfferViewSet
 )
 
 router = DefaultRouter()
@@ -19,6 +23,13 @@ router.register(r'waves', WaveViewSet, basename='wave')
 router.register(r'enemies', EnemyViewSet, basename='enemy')
 router.register(r'worker-types', WorkerTypeViewSet)
 router.register(r'workers', WorkerViewSet, basename='worker')
+router.register(r'material-types', MaterialTypeViewSet)
+router.register(r'materials', PlayerMaterialViewSet, basename='material')
+router.register(r'technology-types', TechnologyTypeViewSet)
+router.register(r'technologies', PlayerTechnologyViewSet, basename='technology')
+router.register(r'recipes', CraftingRecipeViewSet)
+router.register(r'items', PlayerItemViewSet, basename='item')
+router.register(r'trades', TradeOfferViewSet, basename='trade')
 
 urlpatterns = [
     path('register/', register, name='register'),

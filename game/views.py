@@ -9,14 +9,20 @@ import string
 
 from .models import (
     Party, PlayerProfile, BuildingType, Building, PartyMessage,
-    WeaponType, Tower, EnemyType, Wave, Enemy, WorkerType, Worker
+    WeaponType, Tower, EnemyType, Wave, Enemy, WorkerType, Worker,
+    MaterialType, PlayerMaterial, TechnologyType, PlayerTechnology,
+    CraftingRecipe, PlayerItem, TradeOffer
 )
 from .serializers import (
     UserSerializer, RegisterSerializer, PartySerializer, PlayerProfileSerializer,
     BuildingTypeSerializer, BuildingSerializer, BuildingCreateSerializer,
     PartyMessageSerializer, WeaponTypeSerializer, TowerSerializer,
     TowerCreateSerializer, EnemySerializer, WaveSerializer,
-    WorkerTypeSerializer, WorkerSerializer, WorkerHireSerializer
+    WorkerTypeSerializer, WorkerSerializer, WorkerHireSerializer,
+    MaterialTypeSerializer, PlayerMaterialSerializer,
+    TechnologyTypeSerializer, PlayerTechnologySerializer, ResearchStartSerializer,
+    CraftingRecipeSerializer, PlayerItemSerializer, CraftItemSerializer,
+    TradeOfferSerializer, CreateTradeOfferSerializer
 )
 
 
@@ -381,3 +387,284 @@ class WorkerViewSet(viewsets.ModelViewSet):
         worker.add_experience(amount)
         serializer = self.get_serializer(worker)
         return Response(serializer.data)
+
+
+# Material Management Views
+
+class MaterialTypeViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = MaterialType.objects.all()
+    serializer_class = MaterialTypeSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class PlayerMaterialViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = PlayerMaterialSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return PlayerMaterial.objects.filter(player=self.request.user.profile)
+
+
+# Technology System Views
+
+class TechnologyTypeViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = TechnologyType.objects.all()
+    serializer_class = TechnologyTypeSerializer
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def available(self, request):
+        """Get technologies available for research based on player level and prerequisites"""
+        player = request.user.profile
+
+        # Get technologies player can research (level requirement met)
+        available_techs = TechnologyType.objects.filter(min_level__lte=player.level)
+
+        # Filter out already researched
+        researched_ids = PlayerTechnology.objects.filter(
+            player=player,
+            is_completed=True
+        ).values_list('technology_type_id', flat=True)
+
+        available_techs = available_techs.exclude(id__in=researched_ids)
+
+        # Filter by prerequisites
+        filtered_techs = []
+        for tech in available_techs:
+            if tech.prerequisite:
+                # Check if prerequisite is researched
+                if tech.prerequisite.id in researched_ids:
+                    filtered_techs.append(tech)
+            else:
+                # No prerequisite required
+                filtered_techs.append(tech)
+
+        serializer = self.get_serializer(filtered_techs, many=True)
+        return Response(serializer.data)
+
+
+class PlayerTechnologyViewSet(viewsets.ModelViewSet):
+    serializer_class = PlayerTechnologySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return PlayerTechnology.objects.filter(player=self.request.user.profile)
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return ResearchStartSerializer
+        return PlayerTechnologySerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+
+    @action(detail=False, methods=['get'])
+    def current(self, request):
+        """Get currently researching technology"""
+        research = PlayerTechnology.objects.filter(
+            player=request.user.profile,
+            is_researching=True
+        ).first()
+
+        if research:
+            serializer = self.get_serializer(research)
+            return Response(serializer.data)
+        return Response({'message': 'No active research'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['post'])
+    def check_completion(self, request, pk=None):
+        """Check if research is complete"""
+        research = self.get_object()
+        completed = research.check_completion()
+        serializer = self.get_serializer(research)
+        return Response({
+            'completed': completed,
+            'research': serializer.data
+        })
+
+    @action(detail=False, methods=['get'])
+    def completed(self, request):
+        """Get all completed technologies"""
+        technologies = PlayerTechnology.objects.filter(
+            player=request.user.profile,
+            is_completed=True
+        )
+        serializer = self.get_serializer(technologies, many=True)
+        return Response(serializer.data)
+
+
+# Crafting System Views
+
+class CraftingRecipeViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = CraftingRecipe.objects.all()
+    serializer_class = CraftingRecipeSerializer
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def available(self, request):
+        """Get recipes available for crafting based on player level and unlocked technologies"""
+        player = request.user.profile
+
+        # Get recipes player can craft (level requirement met)
+        available_recipes = CraftingRecipe.objects.filter(min_level__lte=player.level)
+
+        # Filter by required technology
+        researched_tech_ids = PlayerTechnology.objects.filter(
+            player=player,
+            is_completed=True
+        ).values_list('technology_type_id', flat=True)
+
+        filtered_recipes = []
+        for recipe in available_recipes:
+            if recipe.required_technology:
+                # Check if technology is researched
+                if recipe.required_technology.id in researched_tech_ids:
+                    filtered_recipes.append(recipe)
+            else:
+                # No technology required
+                filtered_recipes.append(recipe)
+
+        serializer = self.get_serializer(filtered_recipes, many=True)
+        return Response(serializer.data)
+
+
+class PlayerItemViewSet(viewsets.ModelViewSet):
+    serializer_class = PlayerItemSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return PlayerItem.objects.filter(player=self.request.user.profile)
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return CraftItemSerializer
+        return PlayerItemSerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+
+    @action(detail=True, methods=['post'])
+    def equip(self, request, pk=None):
+        """Equip item to a building"""
+        item = self.get_object()
+        building_id = request.data.get('building_id')
+
+        if not building_id:
+            return Response({'error': 'building_id required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            building = Building.objects.get(id=building_id, player=request.user.profile)
+        except Building.DoesNotExist:
+            return Response({'error': 'Building not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if item.equip_to_building(building):
+            serializer = self.get_serializer(item)
+            return Response(serializer.data)
+        else:
+            return Response({'error': 'Cannot equip item to this building'},
+                          status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def unequip(self, request, pk=None):
+        """Unequip item from building"""
+        item = self.get_object()
+        if item.unequip():
+            serializer = self.get_serializer(item)
+            return Response(serializer.data)
+        else:
+            return Response({'error': 'Item is not equipped'},
+                          status=status.HTTP_400_BAD_REQUEST)
+
+
+# Trading System Views
+
+class TradeOfferViewSet(viewsets.ModelViewSet):
+    serializer_class = TradeOfferSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        player = self.request.user.profile
+
+        # Show offers created by player or available to them
+        if self.action == 'list':
+            # Show public offers and party offers
+            party_offers = TradeOffer.objects.filter(
+                party_only=True,
+                seller__party=player.party
+            ) if player.party else TradeOffer.objects.none()
+
+            public_offers = TradeOffer.objects.filter(party_only=False, buyer=None)
+            direct_offers = TradeOffer.objects.filter(buyer=player)
+
+            return (party_offers | public_offers | direct_offers).filter(
+                status='pending'
+            ).distinct().order_by('-created_at')
+
+        # For other actions, only show player's own offers
+        return TradeOffer.objects.filter(seller=player)
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return CreateTradeOfferSerializer
+        return TradeOfferSerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+
+    @action(detail=False, methods=['get'])
+    def my_offers(self, request):
+        """Get offers created by the player"""
+        offers = TradeOffer.objects.filter(seller=request.user.profile)
+        serializer = self.get_serializer(offers, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def received_offers(self, request):
+        """Get offers directed to the player"""
+        offers = TradeOffer.objects.filter(
+            buyer=request.user.profile,
+            status='pending'
+        )
+        serializer = self.get_serializer(offers, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def accept(self, request, pk=None):
+        """Accept a trade offer"""
+        offer = self.get_object()
+        player = request.user.profile
+
+        # Check if offer can be accepted
+        if offer.seller == player:
+            return Response({'error': 'Cannot accept your own offer'},
+                          status=status.HTTP_400_BAD_REQUEST)
+
+        if offer.buyer and offer.buyer != player:
+            return Response({'error': 'This offer is for another player'},
+                          status=status.HTTP_403_FORBIDDEN)
+
+        success, message = offer.accept(player)
+
+        if success:
+            serializer = self.get_serializer(offer)
+            return Response({'message': message, 'trade': serializer.data})
+        else:
+            return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """Cancel a trade offer"""
+        offer = self.get_object()
+
+        if offer.cancel():
+            serializer = self.get_serializer(offer)
+            return Response({'message': 'Trade cancelled', 'trade': serializer.data})
+        else:
+            return Response({'error': 'Cannot cancel this trade'},
+                          status=status.HTTP_400_BAD_REQUEST)
