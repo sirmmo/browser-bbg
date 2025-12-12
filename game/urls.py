@@ -4,7 +4,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .views import (
     register, PlayerProfileViewSet, BuildingTypeViewSet,
     BuildingViewSet, PartyViewSet, WeaponTypeViewSet,
-    TowerViewSet, WaveViewSet, EnemyViewSet
+    TowerViewSet, WaveViewSet, EnemyViewSet,
+    WorkerTypeViewSet, WorkerViewSet
 )
 
 router = DefaultRouter()
@@ -16,6 +17,8 @@ router.register(r'weapon-types', WeaponTypeViewSet)
 router.register(r'towers', TowerViewSet, basename='tower')
 router.register(r'waves', WaveViewSet, basename='wave')
 router.register(r'enemies', EnemyViewSet, basename='enemy')
+router.register(r'worker-types', WorkerTypeViewSet)
+router.register(r'workers', WorkerViewSet, basename='worker')
 
 urlpatterns = [
     path('register/', register, name='register'),

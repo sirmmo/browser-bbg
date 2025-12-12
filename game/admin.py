@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     Party, PlayerProfile, BuildingType, Building, PartyMessage,
-    WeaponType, Tower, EnemyType, Wave, Enemy
+    WeaponType, Tower, EnemyType, Wave, Enemy, WorkerType, Worker
 )
 
 
@@ -67,3 +67,43 @@ class WaveAdmin(admin.ModelAdmin):
 class EnemyAdmin(admin.ModelAdmin):
     list_display = ['enemy_type', 'wave', 'current_health', 'is_alive', 'spawn_time']
     list_filter = ['is_alive', 'enemy_type']
+
+
+@admin.register(WorkerType)
+class WorkerTypeAdmin(admin.ModelAdmin):
+    list_display = ['name', 'category', 'cost_coins', 'cost_food', 'production_multiplier', 
+                    'damage_bonus', 'min_level']
+    list_filter = ['category', 'min_level']
+    fieldsets = (
+        ('Basic Info', {
+            'fields': ('name', 'description', 'category', 'icon', 'min_level')
+        }),
+        ('Costs', {
+            'fields': ('cost_coins', 'cost_food', 'upkeep_food')
+        }),
+        ('Production Effects', {
+            'fields': ('production_multiplier', 'build_speed_multiplier', 'resource_efficiency')
+        }),
+        ('Defense Effects', {
+            'fields': ('damage_bonus', 'range_bonus', 'fire_rate_multiplier')
+        }),
+        ('Compatibility', {
+            'fields': ('compatible_building_category',)
+        }),
+    )
+
+
+@admin.register(Worker)
+class WorkerAdmin(admin.ModelAdmin):
+    list_display = ['worker_type', 'player', 'get_assignment', 'efficiency', 'morale', 'experience']
+    list_filter = ['worker_type__category', 'morale']
+    search_fields = ['player__user__username']
+    readonly_fields = ['efficiency', 'hired_at']
+    
+    def get_assignment(self, obj):
+        if obj.assigned_building:
+            return f"Building: {obj.assigned_building.building_type.name}"
+        elif obj.assigned_tower:
+            return f"Tower: {obj.assigned_tower.weapon_type.name}"
+        return "Unassigned"
+    get_assignment.short_description = 'Assignment'

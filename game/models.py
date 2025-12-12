@@ -52,12 +52,15 @@ class PlayerProfile(models.Model):
         return (self.level * 100) - self.experience
 
     def collect_resources(self):
-        """Collect resources from buildings"""
+        """Collect resources from buildings (with worker bonuses)"""
         now = timezone.now()
         time_diff = (now - self.last_collection).total_seconds() / 60  # minutes
 
         for building in self.buildings.filter(is_built=True):
-            production = building.building_type.calculate_production(time_diff)
+            # Calculate production with worker multiplier
+            worker_multiplier = building.get_worker_multiplier()
+            production = building.building_type.calculate_production(time_diff, worker_multiplier)
+
             if building.building_type.resource_type == 'coins':
                 self.coins += production
             elif building.building_type.resource_type == 'wood':
@@ -104,6 +107,7 @@ class BuildingType(models.Model):
     cost_food = models.IntegerField(default=0)
     build_time = models.IntegerField(help_text="Build time in seconds")
     min_level = models.IntegerField(default=1, help_text="Minimum level required")
+    worker_capacity = models.IntegerField(default=2, help_text="Maximum workers that can be assigned")
     width = models.IntegerField(default=1)
     height = models.IntegerField(default=1)
     icon = models.CharField(max_length=50, default='🏠')
@@ -111,9 +115,9 @@ class BuildingType(models.Model):
     def __str__(self):
         return self.name
 
-    def calculate_production(self, minutes):
-        """Calculate production for given time period"""
-        return int(self.production_rate * minutes)
+    def calculate_production(self, minutes, worker_multiplier=1.0):
+        """Calculate production for given time period with optional worker bonus"""
+        return int(self.production_rate * minutes * worker_multiplier)
 
 
 class Building(models.Model):
@@ -132,6 +136,14 @@ class Building(models.Model):
 
     def __str__(self):
         return f"{self.building_type.name} at ({self.position_x}, {self.position_y})"
+
+    def get_worker_multiplier(self):
+        """Calculate total production multiplier from assigned workers"""
+        total_multiplier = 1.0
+        for worker in self.workers.all():
+            worker_bonus = (worker.worker_type.production_multiplier - 1.0) * worker.get_effective_multiplier()
+            total_multiplier += worker_bonus
+        return total_multiplier
 
     def check_completion(self):
         """Check if building construction is complete"""
@@ -204,6 +216,31 @@ class Tower(models.Model):
 
     def __str__(self):
         return f"{self.weapon_type.name} at ({self.position_x}, {self.position_y})"
+
+    def get_effective_damage(self):
+        """Calculate total damage with worker bonuses"""
+        base_damage = self.weapon_type.base_damage
+        bonus_damage = 0
+        for worker in self.workers.all():
+            bonus_damage += worker.worker_type.damage_bonus * worker.get_effective_multiplier()
+        return int(base_damage + bonus_damage)
+
+    def get_effective_range(self):
+        """Calculate total range with worker bonuses"""
+        base_range = self.weapon_type.base_range
+        bonus_range = 0
+        for worker in self.workers.all():
+            bonus_range += worker.worker_type.range_bonus * worker.get_effective_multiplier()
+        return int(base_range + bonus_range)
+
+    def get_effective_fire_rate(self):
+        """Calculate fire rate with worker multipliers"""
+        base_fire_rate = self.weapon_type.base_fire_rate
+        multiplier = 1.0
+        for worker in self.workers.all():
+            worker_bonus = (worker.worker_type.fire_rate_multiplier - 1.0) * worker.get_effective_multiplier()
+            multiplier += worker_bonus
+        return round(base_fire_rate * multiplier, 2)
 
     def can_upgrade(self):
         """Check if tower can be upgraded"""
@@ -310,3 +347,129 @@ class Enemy(models.Model):
             player.add_experience(self.enemy_type.reward_xp)
         self.save()
         return not self.is_alive
+
+
+class WorkerType(models.Model):
+    """Template for worker/staff types that can be hired"""
+    WORKER_CATEGORY_CHOICES = [
+        ('production', 'Production Worker'),
+        ('defense', 'Defense Specialist'),
+        ('support', 'Support Staff'),
+        ('elite', 'Elite Worker'),
+    ]
+
+    name = models.CharField(max_length=100)
+    description = models.TextField()
+    category = models.CharField(max_length=20, choices=WORKER_CATEGORY_CHOICES)
+    
+    # Hiring costs
+    cost_coins = models.IntegerField(default=50)
+    cost_food = models.IntegerField(default=10, help_text="Food cost per hire")
+    upkeep_food = models.IntegerField(default=1, help_text="Food consumed per day")
+    
+    # Effect modifiers (multipliers and bonuses)
+    production_multiplier = models.FloatField(default=1.0, help_text="Production boost (1.0 = no boost, 1.5 = +50%)")
+    damage_bonus = models.IntegerField(default=0, help_text="Extra damage for towers")
+    range_bonus = models.IntegerField(default=0, help_text="Extra range for towers")
+    fire_rate_multiplier = models.FloatField(default=1.0, help_text="Fire rate boost for towers")
+    build_speed_multiplier = models.FloatField(default=1.0, help_text="Build speed boost (2.0 = 2x faster)")
+    resource_efficiency = models.FloatField(default=1.0, help_text="Resource usage efficiency (0.9 = -10% costs)")
+    
+    # Compatibility
+    compatible_building_category = models.CharField(max_length=20, blank=True, 
+                                                     help_text="Leave blank for all, or specify: resource/defense/special")
+    min_level = models.IntegerField(default=1)
+    icon = models.CharField(max_length=50, default='👷')
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+    def is_compatible_with_building(self, building_type):
+        """Check if this worker type can work in the given building type"""
+        if not self.compatible_building_category:
+            return True  # Works in all buildings
+        return building_type.category == self.compatible_building_category
+
+
+class Worker(models.Model):
+    """An individual worker hired by a player"""
+    player = models.ForeignKey(PlayerProfile, on_delete=models.CASCADE, related_name='workers')
+    worker_type = models.ForeignKey(WorkerType, on_delete=models.CASCADE)
+    
+    # Assignment
+    assigned_building = models.ForeignKey('Building', on_delete=models.SET_NULL, 
+                                         null=True, blank=True, related_name='workers')
+    assigned_tower = models.ForeignKey('Tower', on_delete=models.SET_NULL,
+                                       null=True, blank=True, related_name='workers')
+    
+    # Worker progression
+    experience = models.IntegerField(default=0)
+    efficiency = models.FloatField(default=1.0, help_text="Worker efficiency multiplier (improves with experience)")
+    morale = models.IntegerField(default=100, help_text="Worker morale (0-100)")
+    
+    hired_at = models.DateTimeField(auto_now_add=True)
+    last_paid = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        location = "Unassigned"
+        if self.assigned_building:
+            location = f"at {self.assigned_building.building_type.name}"
+        elif self.assigned_tower:
+            location = f"at {self.assigned_tower.weapon_type.name}"
+        return f"{self.worker_type.name} {location}"
+
+    def assign_to_building(self, building):
+        """Assign worker to a building"""
+        if building.player != self.player:
+            return False
+        
+        # Check compatibility
+        if not self.worker_type.is_compatible_with_building(building.building_type):
+            return False
+        
+        # Check capacity
+        if building.workers.count() >= building.building_type.worker_capacity:
+            return False
+        
+        self.assigned_building = building
+        self.assigned_tower = None
+        self.save()
+        return True
+
+    def assign_to_tower(self, tower):
+        """Assign worker to a tower"""
+        if tower.player != self.player:
+            return False
+        
+        # Check if worker is defense category
+        if self.worker_type.category != 'defense' and self.worker_type.category != 'elite':
+            return False
+        
+        # Check capacity (towers can have 1 worker by default)
+        if tower.workers.count() >= 1:
+            return False
+        
+        self.assigned_tower = tower
+        self.assigned_building = None
+        self.save()
+        return True
+
+    def unassign(self):
+        """Remove worker from current assignment"""
+        self.assigned_building = None
+        self.assigned_tower = None
+        self.save()
+
+    def get_effective_multiplier(self):
+        """Get the worker's effective multiplier including efficiency"""
+        return self.efficiency * (self.morale / 100.0)
+
+    def add_experience(self, amount):
+        """Add experience to worker and improve efficiency"""
+        self.experience += amount
+        # Efficiency improves slightly with experience (caps at 1.5x)
+        new_efficiency = 1.0 + min(0.5, self.experience / 1000.0)
+        self.efficiency = new_efficiency
+        self.save()

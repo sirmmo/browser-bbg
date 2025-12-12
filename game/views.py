@@ -9,13 +9,14 @@ import string
 
 from .models import (
     Party, PlayerProfile, BuildingType, Building, PartyMessage,
-    WeaponType, Tower, EnemyType, Wave, Enemy
+    WeaponType, Tower, EnemyType, Wave, Enemy, WorkerType, Worker
 )
 from .serializers import (
     UserSerializer, RegisterSerializer, PartySerializer, PlayerProfileSerializer,
     BuildingTypeSerializer, BuildingSerializer, BuildingCreateSerializer,
     PartyMessageSerializer, WeaponTypeSerializer, TowerSerializer,
-    TowerCreateSerializer, EnemySerializer, WaveSerializer
+    TowerCreateSerializer, EnemySerializer, WaveSerializer,
+    WorkerTypeSerializer, WorkerSerializer, WorkerHireSerializer
 )
 
 
@@ -295,3 +296,88 @@ class EnemyViewSet(viewsets.ReadOnlyModelViewSet):
                 'xp': enemy.enemy_type.reward_xp
             }})
         return Response({'killed': False, 'current_health': enemy.current_health})
+
+
+# Worker Management Views
+
+class WorkerTypeViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = WorkerType.objects.all()
+    serializer_class = WorkerTypeSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class WorkerViewSet(viewsets.ModelViewSet):
+    serializer_class = WorkerSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Worker.objects.filter(player=self.request.user.profile)
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return WorkerHireSerializer
+        return WorkerSerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+
+    @action(detail=True, methods=['post'])
+    def assign_building(self, request, pk=None):
+        """Assign worker to a building"""
+        worker = self.get_object()
+        building_id = request.data.get('building_id')
+        
+        if not building_id:
+            return Response({'error': 'building_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            building = Building.objects.get(id=building_id, player=request.user.profile)
+        except Building.DoesNotExist:
+            return Response({'error': 'Building not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if worker.assign_to_building(building):
+            serializer = self.get_serializer(worker)
+            return Response(serializer.data)
+        else:
+            return Response({'error': 'Cannot assign worker to this building'}, 
+                          status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def assign_tower(self, request, pk=None):
+        """Assign worker to a tower"""
+        worker = self.get_object()
+        tower_id = request.data.get('tower_id')
+        
+        if not tower_id:
+            return Response({'error': 'tower_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            tower = Tower.objects.get(id=tower_id, player=request.user.profile)
+        except Tower.DoesNotExist:
+            return Response({'error': 'Tower not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if worker.assign_to_tower(tower):
+            serializer = self.get_serializer(worker)
+            return Response(serializer.data)
+        else:
+            return Response({'error': 'Cannot assign worker to this tower'},
+                          status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def unassign(self, request, pk=None):
+        """Remove worker from current assignment"""
+        worker = self.get_object()
+        worker.unassign()
+        serializer = self.get_serializer(worker)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def add_experience(self, request, pk=None):
+        """Add experience to worker (for manual testing/admin)"""
+        worker = self.get_object()
+        amount = request.data.get('amount', 10)
+        worker.add_experience(amount)
+        serializer = self.get_serializer(worker)
+        return Response(serializer.data)

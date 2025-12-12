@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import (
     Party, PlayerProfile, BuildingType, Building, PartyMessage,
-    WeaponType, Tower, EnemyType, Wave, Enemy
+    WeaponType, Tower, EnemyType, Wave, Enemy, WorkerType, Worker
 )
 
 
@@ -242,3 +242,74 @@ class WaveSerializer(serializers.ModelSerializer):
         model = Wave
         fields = ['id', 'wave_number', 'started_at', 'completed_at', 'is_active',
                   'enemies_defeated', 'total_enemies', 'damage_taken', 'enemies']
+
+
+class WorkerTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkerType
+        fields = '__all__'
+
+
+class WorkerSerializer(serializers.ModelSerializer):
+    worker_detail = WorkerTypeSerializer(source='worker_type', read_only=True)
+    assignment = serializers.SerializerMethodField()
+    effective_multiplier = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Worker
+        fields = ['id', 'worker_type', 'worker_detail', 'assigned_building', 'assigned_tower',
+                  'assignment', 'experience', 'efficiency', 'morale', 'effective_multiplier',
+                  'hired_at', 'last_paid']
+        read_only_fields = ['efficiency', 'hired_at', 'last_paid']
+
+    def get_assignment(self, obj):
+        if obj.assigned_building:
+            return {'type': 'building', 'id': obj.assigned_building.id, 
+                    'name': obj.assigned_building.building_type.name}
+        elif obj.assigned_tower:
+            return {'type': 'tower', 'id': obj.assigned_tower.id,
+                    'name': obj.assigned_tower.weapon_type.name}
+        return None
+
+    def get_effective_multiplier(self, obj):
+        return obj.get_effective_multiplier()
+
+
+class WorkerHireSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Worker
+        fields = ['worker_type']
+
+    def validate(self, data):
+        request = self.context.get('request')
+        player = request.user.profile
+        worker_type = data['worker_type']
+
+        # Check level requirement
+        if player.level < worker_type.min_level:
+            raise serializers.ValidationError(f"Level {worker_type.min_level} required")
+
+        # Check if player has enough resources
+        if player.coins < worker_type.cost_coins:
+            raise serializers.ValidationError("Not enough coins")
+        if player.food < worker_type.cost_food:
+            raise serializers.ValidationError("Not enough food")
+
+        return data
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        player = request.user.profile
+        worker_type = validated_data['worker_type']
+
+        # Deduct resources
+        player.coins -= worker_type.cost_coins
+        player.food -= worker_type.cost_food
+        player.save()
+
+        # Create worker
+        worker = Worker.objects.create(
+            player=player,
+            worker_type=worker_type
+        )
+        return worker
