@@ -11,7 +11,7 @@ from .models import (
     Party, PlayerProfile, BuildingType, Building, PartyMessage,
     WeaponType, Tower, EnemyType, Wave, Enemy, WorkerType, Worker,
     MaterialType, PlayerMaterial, TechnologyType, PlayerTechnology,
-    CraftingRecipe, PlayerItem, TradeOffer
+    CraftingRecipe, PlayerItem, TradeOffer, TerritorialExpansion, GameTick
 )
 from .serializers import (
     UserSerializer, RegisterSerializer, PartySerializer, PlayerProfileSerializer,
@@ -22,7 +22,8 @@ from .serializers import (
     MaterialTypeSerializer, PlayerMaterialSerializer,
     TechnologyTypeSerializer, PlayerTechnologySerializer, ResearchStartSerializer,
     CraftingRecipeSerializer, PlayerItemSerializer, CraftItemSerializer,
-    TradeOfferSerializer, CreateTradeOfferSerializer
+    TradeOfferSerializer, CreateTradeOfferSerializer,
+    TerritorialExpansionSerializer, PurchaseExpansionSerializer, GameTickSerializer
 )
 
 
@@ -668,3 +669,103 @@ class TradeOfferViewSet(viewsets.ModelViewSet):
         else:
             return Response({'error': 'Cannot cancel this trade'},
                           status=status.HTTP_400_BAD_REQUEST)
+
+
+# Territory and Time Progression Views
+
+class TerritorialExpansionViewSet(viewsets.ReadOnlyModelViewSet):
+    """View territorial expansion history"""
+    serializer_class = TerritorialExpansionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return TerritorialExpansion.objects.filter(player=self.request.user.profile)
+
+    @action(detail=False, methods=['get'])
+    def cost(self, request):
+        """Get cost for next expansion"""
+        player = request.user.profile
+        expansion_type = request.query_params.get('type', 'both')
+
+        if not player.can_expand_territory():
+            return Response({'error': 'Maximum territory size reached'},
+                          status=status.HTTP_400_BAD_REQUEST)
+
+        current_size = max(player.grid_size_x, player.grid_size_y)
+        cost = TerritorialExpansion.get_expansion_cost(current_size)
+
+        return Response({
+            'expansion_type': expansion_type,
+            'current_size': {'x': player.grid_size_x, 'y': player.grid_size_y},
+            'max_size': 20,
+            'cost': cost
+        })
+
+    @action(detail=False, methods=['post'])
+    def purchase(self, request):
+        """Purchase a territorial expansion"""
+        serializer = PurchaseExpansionSerializer(data=request.data, context={'request': request})
+
+        if serializer.is_valid():
+            player = request.user.profile
+            expansion_type = serializer.validated_data['expansion_type']
+
+            # Get cost
+            current_size = max(player.grid_size_x, player.grid_size_y)
+            cost = TerritorialExpansion.get_expansion_cost(current_size)
+
+            # Deduct resources
+            player.coins -= cost['coins']
+            player.wood -= cost['wood']
+            player.stone -= cost['stone']
+            player.save()
+
+            # Create expansion record
+            expansion = TerritorialExpansion.objects.create(
+                player=player,
+                expansion_type=expansion_type,
+                cost_coins=cost['coins'],
+                cost_wood=cost['wood'],
+                cost_stone=cost['stone']
+            )
+
+            # Apply expansion
+            expansion.apply_expansion()
+
+            # Reload player
+            player.refresh_from_db()
+
+            return Response({
+                'message': f'{expansion_type.capitalize()} expansion purchased successfully',
+                'expansion': TerritorialExpansionSerializer(expansion).data,
+                'new_size': {'x': player.grid_size_x, 'y': player.grid_size_y},
+                'resources': {
+                    'coins': player.coins,
+                    'wood': player.wood,
+                    'stone': player.stone
+                }
+            }, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class GameTickViewSet(viewsets.ReadOnlyModelViewSet):
+    """View game tick history (read-only)"""
+    queryset = GameTick.objects.all()
+    serializer_class = GameTickSerializer
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def current(self, request):
+        """Get current tick number"""
+        tick_number = GameTick.get_current_tick()
+        return Response({'tick_number': tick_number})
+
+    @action(detail=False, methods=['get'])
+    def latest(self, request):
+        """Get latest tick details"""
+        tick = GameTick.objects.first()
+        if tick:
+            serializer = self.get_serializer(tick)
+            return Response(serializer.data)
+        return Response({'message': 'No ticks processed yet'}, status=status.HTTP_404_NOT_FOUND)

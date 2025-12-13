@@ -21,15 +21,27 @@ class PlayerProfile(models.Model):
     """Extended user profile for game data"""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     party = models.ForeignKey(Party, on_delete=models.SET_NULL, null=True, blank=True, related_name='members')
+
+    # Basic resources
     coins = models.IntegerField(default=100)
     wood = models.IntegerField(default=50)
     stone = models.IntegerField(default=30)
     food = models.IntegerField(default=20)
+
+    # Player progression
     level = models.IntegerField(default=1)
     experience = models.IntegerField(default=0)
+    waves_survived = models.IntegerField(default=0)
+
+    # Territory and storage
+    grid_size_x = models.IntegerField(default=10, help_text="Territory width")
+    grid_size_y = models.IntegerField(default=10, help_text="Territory height")
+    material_storage_capacity = models.IntegerField(default=1000, help_text="Total material storage")
+
+    # Timestamps
     last_collection = models.DateTimeField(auto_now_add=True)
     last_wave = models.DateTimeField(null=True, blank=True)
-    waves_survived = models.IntegerField(default=0)
+    last_tick = models.DateTimeField(default=timezone.now, help_text="Last game tick processed")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -50,6 +62,28 @@ class PlayerProfile(models.Model):
     def get_next_level_xp(self):
         """Get XP needed for next level"""
         return (self.level * 100) - self.experience
+
+    def get_total_storage_capacity(self):
+        """Calculate total storage capacity including bonuses from buildings"""
+        base_capacity = self.material_storage_capacity
+
+        # Add capacity from warehouse buildings
+        warehouse_bonus = 0
+        for building in self.buildings.filter(building_type__name__icontains='Warehouse', is_built=True):
+            # Each warehouse adds capacity based on its type
+            warehouse_bonus += building.building_type.storage_capacity if hasattr(building.building_type, 'storage_capacity') else 500
+
+        return base_capacity + warehouse_bonus
+
+    def get_territory_size(self):
+        """Get current territory dimensions"""
+        return {'width': self.grid_size_x, 'height': self.grid_size_y, 'total': self.grid_size_x * self.grid_size_y}
+
+    def can_expand_territory(self):
+        """Check if player can purchase territory expansion"""
+        # Max territory size
+        max_size = 20
+        return self.grid_size_x < max_size or self.grid_size_y < max_size
 
     def collect_resources(self):
         """Collect resources from buildings (with worker bonuses)"""
@@ -119,6 +153,7 @@ class BuildingType(models.Model):
     build_time = models.IntegerField(help_text="Build time in seconds")
     min_level = models.IntegerField(default=1, help_text="Minimum level required")
     worker_capacity = models.IntegerField(default=2, help_text="Maximum workers that can be assigned")
+    storage_capacity = models.IntegerField(default=0, help_text="Material storage capacity bonus")
     width = models.IntegerField(default=1)
     height = models.IntegerField(default=1)
     icon = models.CharField(max_length=50, default='🏠')
@@ -925,3 +960,120 @@ class TradeOffer(models.Model):
             self.save()
             return True
         return False
+
+
+class TerritorialExpansion(models.Model):
+    """Player territorial expansion purchases"""
+    player = models.ForeignKey(PlayerProfile, on_delete=models.CASCADE, related_name='expansions')
+    expansion_type = models.CharField(max_length=20, choices=[
+        ('horizontal', 'Horizontal Expansion'),
+        ('vertical', 'Vertical Expansion'),
+        ('both', 'Full Expansion')
+    ])
+    cost_coins = models.IntegerField()
+    cost_wood = models.IntegerField(default=0)
+    cost_stone = models.IntegerField(default=0)
+    size_increase = models.IntegerField(default=2, help_text="Grid size increase")
+    purchased_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-purchased_at']
+
+    def __str__(self):
+        return f"{self.player.user.username}: {self.expansion_type} expansion"
+
+    @staticmethod
+    def get_expansion_cost(current_size):
+        """Calculate cost for next expansion based on current size"""
+        # Cost increases exponentially with size
+        base_cost = 500
+        multiplier = (current_size - 10) / 2 + 1
+        return {
+            'coins': int(base_cost * multiplier),
+            'wood': int(200 * multiplier),
+            'stone': int(200 * multiplier),
+        }
+
+    def apply_expansion(self):
+        """Apply the expansion to the player's territory"""
+        player = self.player
+
+        if self.expansion_type == 'horizontal':
+            player.grid_size_x += self.size_increase
+        elif self.expansion_type == 'vertical':
+            player.grid_size_y += self.size_increase
+        elif self.expansion_type == 'both':
+            player.grid_size_x += self.size_increase
+            player.grid_size_y += self.size_increase
+
+        player.save()
+
+
+class GameTick(models.Model):
+    """Global game tick for time-based progression"""
+    tick_number = models.IntegerField(unique=True)
+    processed_at = models.DateTimeField(auto_now_add=True)
+    players_processed = models.IntegerField(default=0)
+    buildings_completed = models.IntegerField(default=0)
+    researches_completed = models.IntegerField(default=0)
+    resources_collected = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ['-tick_number']
+
+    def __str__(self):
+        return f"Tick #{self.tick_number} - {self.processed_at}"
+
+    @staticmethod
+    def get_current_tick():
+        """Get the latest tick number"""
+        latest = GameTick.objects.first()
+        return latest.tick_number if latest else 0
+
+    @staticmethod
+    def create_tick():
+        """Create a new game tick"""
+        current = GameTick.get_current_tick()
+        return GameTick.objects.create(tick_number=current + 1)
+
+    def process_tick(self):
+        """Process all time-based game events for this tick"""
+        from game.models import PlayerProfile, Building, PlayerTechnology
+
+        stats = {
+            'players_processed': 0,
+            'buildings_completed': 0,
+            'researches_completed': 0,
+            'resources_collected': 0,
+        }
+
+        # Process all players
+        for player in PlayerProfile.objects.all():
+            # Process building completions
+            for building in player.buildings.filter(is_built=False):
+                if building.check_completion():
+                    stats['buildings_completed'] += 1
+
+            # Process research completions
+            for research in player.technologies.filter(is_completed=False, is_researching=True):
+                if research.check_completion():
+                    stats['researches_completed'] += 1
+
+            # Auto-collect resources (optional, can be disabled if frontend handles it)
+            # player.collect_resources()
+            # stats['resources_collected'] += 1
+
+            # Update last tick timestamp
+            player.last_tick = timezone.now()
+            player.save()
+
+            stats['players_processed'] += 1
+
+        # Update tick statistics
+        self.players_processed = stats['players_processed']
+        self.buildings_completed = stats['buildings_completed']
+        self.researches_completed = stats['researches_completed']
+        self.resources_collected = stats['resources_collected']
+        self.save()
+
+        return stats

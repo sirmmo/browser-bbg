@@ -4,7 +4,7 @@ from .models import (
     WeaponType, Tower, EnemyType, Wave, Enemy, WorkerType, Worker,
     MaterialType, PlayerMaterial, TechnologyType, PlayerTechnology,
     CraftingRecipe, MaterialRequirement, TechnologyMaterialRequirement,
-    PlayerItem, TradeOffer
+    PlayerItem, TradeOffer, TerritorialExpansion, GameTick
 )
 
 
@@ -16,14 +16,16 @@ class PartyAdmin(admin.ModelAdmin):
 
 @admin.register(PlayerProfile)
 class PlayerProfileAdmin(admin.ModelAdmin):
-    list_display = ['user', 'party', 'level', 'experience', 'coins', 'wood', 'stone', 'food', 'waves_survived']
+    list_display = ['user', 'party', 'level', 'experience', 'coins', 'wood', 'stone', 'food',
+                    'grid_size_x', 'grid_size_y', 'material_storage_capacity', 'waves_survived']
     list_filter = ['party', 'level']
     search_fields = ['user__username']
+    readonly_fields = ['last_collection', 'last_tick', 'created_at']
 
 
 @admin.register(BuildingType)
 class BuildingTypeAdmin(admin.ModelAdmin):
-    list_display = ['name', 'category', 'resource_type', 'production_rate', 'min_level', 'build_time']
+    list_display = ['name', 'category', 'resource_type', 'production_rate', 'storage_capacity', 'min_level', 'build_time']
     list_filter = ['category', 'resource_type', 'min_level']
 
 
@@ -242,3 +244,43 @@ class TradeOfferAdmin(admin.ModelAdmin):
             'fields': ('status', 'created_at', 'expires_at', 'completed_at')
         }),
     )
+
+
+@admin.register(TerritorialExpansion)
+class TerritorialExpansionAdmin(admin.ModelAdmin):
+    list_display = ['player', 'expansion_type', 'size_increase', 'cost_coins', 'cost_wood', 'cost_stone', 'purchased_at']
+    list_filter = ['expansion_type', 'purchased_at']
+    search_fields = ['player__user__username']
+    readonly_fields = ['purchased_at']
+    fieldsets = (
+        ('Player', {
+            'fields': ('player',)
+        }),
+        ('Expansion Details', {
+            'fields': ('expansion_type', 'size_increase')
+        }),
+        ('Cost', {
+            'fields': ('cost_coins', 'cost_wood', 'cost_stone')
+        }),
+        ('Timestamp', {
+            'fields': ('purchased_at',)
+        }),
+    )
+
+
+@admin.register(GameTick)
+class GameTickAdmin(admin.ModelAdmin):
+    list_display = ['tick_number', 'processed_at', 'players_processed', 'buildings_completed',
+                    'researches_completed', 'resources_collected']
+    list_filter = ['processed_at']
+    readonly_fields = ['tick_number', 'processed_at', 'players_processed', 'buildings_completed',
+                       'researches_completed', 'resources_collected']
+    ordering = ['-tick_number']
+
+    def has_add_permission(self, request):
+        # Ticks should only be created via management command
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        # Keep tick history
+        return False

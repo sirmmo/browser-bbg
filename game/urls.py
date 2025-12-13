@@ -9,7 +9,7 @@ from .views import (
     MaterialTypeViewSet, PlayerMaterialViewSet,
     TechnologyTypeViewSet, PlayerTechnologyViewSet,
     CraftingRecipeViewSet, PlayerItemViewSet,
-    TradeOfferViewSet
+    TradeOfferViewSet, TerritorialExpansionViewSet, GameTickViewSet
 )
 
 router = DefaultRouter()
@@ -30,6 +30,8 @@ router.register(r'technologies', PlayerTechnologyViewSet, basename='technology')
 router.register(r'recipes', CraftingRecipeViewSet)
 router.register(r'items', PlayerItemViewSet, basename='item')
 router.register(r'trades', TradeOfferViewSet, basename='trade')
+router.register(r'expansions', TerritorialExpansionViewSet, basename='expansion')
+router.register(r'ticks', GameTickViewSet, basename='tick')
 
 urlpatterns = [
     path('register/', register, name='register'),

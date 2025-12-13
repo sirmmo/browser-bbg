@@ -7,7 +7,7 @@ from .models import (
     WeaponType, Tower, EnemyType, Wave, Enemy, WorkerType, Worker,
     MaterialType, PlayerMaterial, TechnologyType, PlayerTechnology,
     CraftingRecipe, MaterialRequirement, TechnologyMaterialRequirement,
-    PlayerItem, TradeOffer
+    PlayerItem, TradeOffer, TerritorialExpansion, GameTick
 )
 
 
@@ -49,14 +49,28 @@ class PlayerProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     party = PartySerializer(read_only=True)
     next_level_xp = serializers.SerializerMethodField()
+    total_storage_capacity = serializers.SerializerMethodField()
+    territory_size = serializers.SerializerMethodField()
+    can_expand = serializers.SerializerMethodField()
 
     class Meta:
         model = PlayerProfile
         fields = ['id', 'user', 'party', 'coins', 'wood', 'stone', 'food', 'level', 'experience',
-                  'next_level_xp', 'waves_survived', 'last_collection', 'created_at']
+                  'next_level_xp', 'waves_survived', 'last_collection', 'created_at',
+                  'grid_size_x', 'grid_size_y', 'material_storage_capacity',
+                  'total_storage_capacity', 'territory_size', 'can_expand', 'last_tick']
 
     def get_next_level_xp(self, obj):
         return obj.get_next_level_xp()
+
+    def get_total_storage_capacity(self, obj):
+        return obj.get_total_storage_capacity()
+
+    def get_territory_size(self, obj):
+        return obj.get_territory_size()
+
+    def get_can_expand(self, obj):
+        return obj.can_expand_territory()
 
 
 class BuildingTypeSerializer(serializers.ModelSerializer):
@@ -660,3 +674,80 @@ class CreateTradeOfferSerializer(serializers.ModelSerializer):
             **validated_data
         )
         return trade_offer
+
+
+# Territorial Expansion Serializers
+
+class TerritorialExpansionSerializer(serializers.ModelSerializer):
+    player_name = serializers.CharField(source='player.user.username', read_only=True)
+
+    class Meta:
+        model = TerritorialExpansion
+        fields = ['id', 'player', 'player_name', 'expansion_type', 'cost_coins',
+                  'cost_wood', 'cost_stone', 'size_increase', 'purchased_at']
+        read_only_fields = ['player', 'purchased_at']
+
+
+class PurchaseExpansionSerializer(serializers.Serializer):
+    expansion_type = serializers.ChoiceField(choices=['horizontal', 'vertical', 'both'])
+
+    def validate(self, data):
+        request = self.context.get('request')
+        player = request.user.profile
+        expansion_type = data['expansion_type']
+
+        # Check if player can expand
+        if not player.can_expand_territory():
+            raise serializers.ValidationError("Maximum territory size reached")
+
+        # Get expansion cost
+        current_size = max(player.grid_size_x, player.grid_size_y)
+        cost = TerritorialExpansion.get_expansion_cost(current_size)
+
+        # Check if player has enough resources
+        if player.coins < cost['coins']:
+            raise serializers.ValidationError(f"Not enough coins (need {cost['coins']})")
+        if player.wood < cost['wood']:
+            raise serializers.ValidationError(f"Not enough wood (need {cost['wood']})")
+        if player.stone < cost['stone']:
+            raise serializers.ValidationError(f"Not enough stone (need {cost['stone']})")
+
+        data['cost'] = cost
+        return data
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        player = request.user.profile
+        expansion_type = validated_data['expansion_type']
+        cost = validated_data['cost']
+
+        # Deduct costs
+        player.coins -= cost['coins']
+        player.wood -= cost['wood']
+        player.stone -= cost['stone']
+        player.save()
+
+        # Create expansion record
+        expansion = TerritorialExpansion.objects.create(
+            player=player,
+            expansion_type=expansion_type,
+            cost_coins=cost['coins'],
+            cost_wood=cost['wood'],
+            cost_stone=cost['stone'],
+            size_increase=2
+        )
+
+        # Apply expansion
+        expansion.apply_expansion()
+
+        return expansion
+
+
+# Game Tick Serializers
+
+class GameTickSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GameTick
+        fields = ['id', 'tick_number', 'processed_at', 'players_processed',
+                  'buildings_completed', 'researches_completed', 'resources_collected']
+        read_only_fields = '__all__'
