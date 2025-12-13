@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { ApiService, PlayerProfile, BuildingType, Building } from '../../services/api.service';
@@ -11,7 +11,7 @@ import { AuthService } from '../../services/auth.service';
   templateUrl: './base.component.html',
   styleUrl: './base.component.css'
 })
-export class BaseComponent implements OnInit {
+export class BaseComponent implements OnInit, OnDestroy {
   profile: PlayerProfile | null = null;
   buildingTypes: BuildingType[] = [];
   buildings: Building[] = [];
@@ -30,6 +30,13 @@ export class BaseComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadData();
+    // Start automatic resource collection every minute
+    this.apiService.startAutoCollection();
+  }
+
+  ngOnDestroy(): void {
+    // Stop automatic resource collection when component is destroyed
+    this.apiService.stopAutoCollection();
   }
 
   initializeGrid(): void {
@@ -113,7 +120,12 @@ export class BaseComponent implements OnInit {
     this.apiService.collectResources().subscribe({
       next: (response) => {
         this.message = 'Resources collected!';
-        this.loadData();
+        // Refresh profile to show updated resources
+        this.apiService.getProfile().subscribe({
+          next: (profile) => {
+            this.profile = profile;
+          }
+        });
       },
       error: (err) => {
         this.message = 'Failed to collect resources';

@@ -1,6 +1,8 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, interval, Subject } from 'rxjs';
+import { switchMap, takeUntil } from 'rxjs/operators';
+import { environment } from '../../environments/environment';
 
 export interface PlayerProfile {
   id: number;
@@ -10,6 +12,10 @@ export interface PlayerProfile {
   wood: number;
   stone: number;
   food: number;
+  level: number;
+  experience: number;
+  next_level_xp: number;
+  waves_survived: number;
   last_collection: string;
   created_at: string;
 }
@@ -55,7 +61,9 @@ export interface Party {
   providedIn: 'root'
 })
 export class ApiService {
-  private apiUrl = 'http://51.15.160.236:9899/api';
+  private apiUrl = environment.apiUrl;
+  private autoCollectInterval$ = new Subject<void>();
+  private isAutoCollecting = false;
 
   constructor(private http: HttpClient) { }
 
@@ -117,5 +125,38 @@ export class ApiService {
 
   sendPartyMessage(partyId: number, message: string): Observable<any> {
     return this.http.post(`${this.apiUrl}/parties/${partyId}/send_message/`, { message });
+  }
+
+  // Auto-collection feature
+  startAutoCollection(): void {
+    if (this.isAutoCollecting) {
+      return; // Already collecting
+    }
+
+    this.isAutoCollecting = true;
+
+    // Collect resources every 60 seconds (1 minute)
+    interval(60000)
+      .pipe(
+        takeUntil(this.autoCollectInterval$),
+        switchMap(() => this.collectResources())
+      )
+      .subscribe({
+        next: (response) => {
+          console.log('Auto-collected resources:', response);
+        },
+        error: (error) => {
+          console.error('Auto-collection error:', error);
+        }
+      });
+  }
+
+  stopAutoCollection(): void {
+    this.isAutoCollecting = false;
+    this.autoCollectInterval$.next();
+  }
+
+  isCollecting(): boolean {
+    return this.isAutoCollecting;
   }
 }
