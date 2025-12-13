@@ -5,5 +5,5 @@ export const environment = {
   // Replace this with your production API URL
   // This can be configured in Netlify's environment variables as VITE_API_URL
   apiUrl: (typeof window !== 'undefined' && (window as any).ENV?.API_URL) ||
-          'https://your-api-domain.com/api'
+          'http://51.15.160.236:9899/api'
 };
