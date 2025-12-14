@@ -86,12 +86,24 @@ class PlayerProfile(models.Model):
         return self.grid_size_x < max_size or self.grid_size_y < max_size
 
     def collect_resources(self):
-        """Collect resources from buildings (with worker bonuses)"""
+        """Collect resources from buildings (with worker bonuses) and check building completions"""
         now = timezone.now()
         time_diff = (now - self.last_collection).total_seconds() / 60  # minutes
 
         materials_collected = {}
+        buildings_completed = []
 
+        # Check for completed buildings first
+        for building in self.buildings.filter(is_built=False):
+            if building.check_completion():
+                buildings_completed.append({
+                    'id': building.id,
+                    'name': building.building_type.name,
+                    'position': {'x': building.position_x, 'y': building.position_y},
+                    'completed_at': building.build_completed
+                })
+
+        # Collect from built buildings
         for building in self.buildings.filter(is_built=True):
             # Calculate production with worker multiplier
             worker_multiplier = building.get_worker_multiplier()
@@ -122,6 +134,7 @@ class PlayerProfile(models.Model):
             'stone': self.stone,
             'food': self.food,
             'materials': materials_collected,
+            'buildings_completed': buildings_completed,
         }
 
 
@@ -1082,6 +1095,8 @@ class GameTick(models.Model):
             'buildings_completed': 0,
             'researches_completed': 0,
             'resources_collected': 0,
+            'completed_buildings': [],
+            'completed_researches': [],
         }
 
         # Process all players
@@ -1090,11 +1105,26 @@ class GameTick(models.Model):
             for building in player.buildings.filter(is_built=False):
                 if building.check_completion():
                     stats['buildings_completed'] += 1
+                    stats['completed_buildings'].append({
+                        'player_id': player.id,
+                        'player_name': player.user.username,
+                        'building_id': building.id,
+                        'building_name': building.building_type.name,
+                        'position': {'x': building.position_x, 'y': building.position_y},
+                        'completed_at': building.build_completed
+                    })
 
             # Process research completions
             for research in player.technologies.filter(is_completed=False, is_researching=True):
                 if research.check_completion():
                     stats['researches_completed'] += 1
+                    stats['completed_researches'].append({
+                        'player_id': player.id,
+                        'player_name': player.user.username,
+                        'research_id': research.id,
+                        'research_name': research.technology_type.name,
+                        'completed_at': research.research_completed
+                    })
 
             # Auto-collect resources (optional, can be disabled if frontend handles it)
             # player.collect_resources()

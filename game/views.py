@@ -53,10 +53,54 @@ class PlayerProfileViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=['post'])
     def collect(self, request):
         profile = request.user.profile
-        resources = profile.collect_resources()
-        return Response({
+        result = profile.collect_resources()
+
+        # Extract buildings_completed separately for clarity
+        buildings_completed = result.pop('buildings_completed', [])
+
+        response = {
             'message': 'Resources collected',
-            'resources': resources
+            'resources': result,
+            'buildings_completed': buildings_completed,
+        }
+
+        # Add notification message if buildings were completed
+        if buildings_completed:
+            building_names = [b['name'] for b in buildings_completed]
+            response['message'] = f"Resources collected. {len(buildings_completed)} building(s) completed: {', '.join(building_names)}"
+
+        return Response(response)
+
+    @action(detail=False, methods=['get'])
+    def status(self, request):
+        """Check for building and research completions without collecting resources"""
+        profile = request.user.profile
+
+        # Check building completions
+        buildings_completed = []
+        for building in profile.buildings.filter(is_built=False):
+            if building.check_completion():
+                buildings_completed.append({
+                    'id': building.id,
+                    'name': building.building_type.name,
+                    'position': {'x': building.position_x, 'y': building.position_y},
+                    'completed_at': building.build_completed
+                })
+
+        # Check research completions
+        researches_completed = []
+        for research in profile.technologies.filter(is_completed=False, is_researching=True):
+            if research.check_completion():
+                researches_completed.append({
+                    'id': research.id,
+                    'name': research.technology_type.name,
+                    'completed_at': research.research_completed
+                })
+
+        return Response({
+            'buildings_completed': buildings_completed,
+            'researches_completed': researches_completed,
+            'has_updates': len(buildings_completed) > 0 or len(researches_completed) > 0
         })
 
 
