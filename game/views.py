@@ -769,3 +769,34 @@ class GameTickViewSet(viewsets.ReadOnlyModelViewSet):
             serializer = self.get_serializer(tick)
             return Response(serializer.data)
         return Response({'message': 'No ticks processed yet'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['get'])
+    def health(self, request):
+        """Check tick service health"""
+        from django.utils import timezone
+        from datetime import timedelta
+
+        latest_tick = GameTick.objects.first()
+
+        if not latest_tick:
+            return Response({
+                'status': 'warning',
+                'message': 'No ticks have been processed yet',
+                'healthy': False
+            })
+
+        # Check if last tick was within expected interval (2 minutes threshold)
+        time_since_last = timezone.now() - latest_tick.processed_at
+        threshold = timedelta(minutes=2)
+
+        is_healthy = time_since_last < threshold
+
+        return Response({
+            'status': 'healthy' if is_healthy else 'unhealthy',
+            'healthy': is_healthy,
+            'last_tick_number': latest_tick.tick_number,
+            'last_tick_time': latest_tick.processed_at,
+            'seconds_since_last_tick': int(time_since_last.total_seconds()),
+            'threshold_seconds': int(threshold.total_seconds()),
+            'message': 'Tick service is running normally' if is_healthy else 'Tick service may be down or stalled'
+        })

@@ -228,10 +228,47 @@ The tick system provides server-side time progression for all time-based events 
 
 ### How It Works
 
-1. A cron job or scheduled task runs the `process_tick` management command periodically (e.g., every 1 minute)
-2. Each tick creates a new `GameTick` record with an incremented tick number
-3. The tick processor iterates through all players and processes time-based events
-4. Statistics are recorded for monitoring
+The tick system runs automatically in the background using one of several modes (async service recommended):
+
+1. **Async Service** (recommended): Runs continuously in background using Python asyncio
+   - Processes ticks at configurable intervals (default: 60 seconds)
+   - Automatic error recovery and logging
+   - Graceful shutdown support
+   - No external dependencies required
+
+2. **Cron/Celery** (alternative): External scheduler triggers tick processing
+
+**Tick Processing Flow:**
+
+1. A tick is triggered (by async service, cron, or manual command)
+2. New `GameTick` record created with incremented tick number
+3. Tick processor iterates through all players and processes time-based events
+4. Statistics recorded for monitoring (players/buildings/researches processed)
+5. Service waits for next interval before processing next tick
+
+**Async Service Architecture:**
+
+```
+┌─────────────────────────────────────┐
+│   Async Tick Service (Background)  │
+│                                     │
+│  ┌───────────────────────────────┐ │
+│  │ Async Loop (every 60s)        │ │
+│  │  1. Create GameTick           │ │
+│  │  2. Process all players       │ │
+│  │  3. Update statistics         │ │
+│  │  4. Wait for next interval    │ │
+│  └───────────────────────────────┘ │
+│                                     │
+│  Features:                          │
+│  • Error handling & retry           │
+│  • Graceful shutdown                │
+│  • Health monitoring                │
+│  • Logging & metrics                │
+└─────────────────────────────────────┘
+           ↓
+    Django Database
+```
 
 ### Model: GameTick
 
@@ -394,7 +431,98 @@ python manage.py process_tick --continuous
 
 ### Setting Up Automated Tick Processing
 
-#### Using Cron (Linux/Mac)
+The tick system can be run in three different modes:
+
+#### 1. Async Service Mode (⭐ **Recommended**)
+
+The async service mode runs ticks continuously in a background asyncio loop. This is the most reliable and modern approach.
+
+**Start the service:**
+```bash
+python manage.py process_tick --async --interval 60
+```
+
+**Or use the convenience script:**
+```bash
+./deployment/run-tick-service.sh 60
+```
+
+**Running in Production with systemd:**
+
+1. Copy the systemd service file:
+```bash
+sudo cp deployment/tick-service.service /etc/systemd/system/
+```
+
+2. Edit the service file to match your setup:
+```bash
+sudo nano /etc/systemd/system/tick-service.service
+```
+
+Update these paths:
+- `WorkingDirectory=/var/www/browser-bbg` (your project path)
+- `ExecStart=/var/www/browser-bbg/venv/bin/python ...` (your venv path)
+- `User=www-data` and `Group=www-data` (your web server user)
+
+3. Enable and start the service:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable tick-service
+sudo systemctl start tick-service
+```
+
+4. Check service status:
+```bash
+sudo systemctl status tick-service
+```
+
+5. View logs:
+```bash
+sudo journalctl -u tick-service -f
+```
+
+**Features:**
+- ✅ Runs continuously in background
+- ✅ Automatic restart on failure
+- ✅ Graceful shutdown (completes current tick before stopping)
+- ✅ Configurable tick interval
+- ✅ Proper async/await support
+- ✅ Built-in error handling and logging
+- ✅ No external dependencies (pure Python asyncio)
+
+**Health Monitoring:**
+
+Check if the tick service is running properly:
+```bash
+curl http://localhost:8000/api/ticks/health/
+```
+
+Response when healthy:
+```json
+{
+  "status": "healthy",
+  "healthy": true,
+  "last_tick_number": 1543,
+  "last_tick_time": "2025-12-14T10:30:00Z",
+  "seconds_since_last_tick": 45,
+  "threshold_seconds": 120,
+  "message": "Tick service is running normally"
+}
+```
+
+#### 2. Single Tick Mode (For Testing/Manual Runs)
+
+Process a single tick manually:
+```bash
+python manage.py process_tick
+```
+
+Useful for:
+- Testing tick processing
+- Manual intervention
+- Debugging tick logic
+
+#### 3. Cron Mode (Alternative for Simple Setups)
 
 Edit crontab:
 ```bash
@@ -403,15 +531,19 @@ crontab -e
 
 Add entry to run every minute:
 ```
-* * * * * cd /path/to/browser-bbg && /path/to/venv/bin/python manage.py process_tick
+* * * * * cd /path/to/browser-bbg && /path/to/venv/bin/python manage.py process_tick >> /var/log/bbg-ticks.log 2>&1
 ```
 
 Or every 5 minutes:
 ```
-*/5 * * * * cd /path/to/browser-bbg && /path/to/venv/bin/python manage.py process_tick
+*/5 * * * * cd /path/to/browser-bbg && /path/to/venv/bin/python manage.py process_tick >> /var/log/bbg-ticks.log 2>&1
 ```
 
-#### Using Django Celery (Recommended for Production)
+**Note:** Cron mode is simpler but less reliable than async service mode. Use async mode for production.
+
+#### 4. Celery Mode (For Complex Deployments)
+
+If you already have Celery for other tasks, you can integrate tick processing:
 
 Install dependencies:
 ```bash
@@ -436,6 +568,8 @@ def process_game_tick():
     tick = GameTick.create_tick()
     tick.process_tick()
 ```
+
+**Note:** For most deployments, the async service mode is simpler and more efficient than Celery.
 
 ---
 

@@ -1,0 +1,30 @@
+[Unit]
+Description=Browser BBG Tick Service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/browser-bbg
+Environment="DJANGO_SETTINGS_MODULE=basebuilder.settings"
+Environment="PYTHONUNBUFFERED=1"
+
+# Run the async tick service
+ExecStart=/var/www/browser-bbg/venv/bin/python manage.py process_tick --async --interval 60
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bbg-tick
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
