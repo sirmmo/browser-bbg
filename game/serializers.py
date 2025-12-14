@@ -99,6 +99,30 @@ class BuildingCreateSerializer(serializers.ModelSerializer):
         player = request.user.profile
 
         building_type = data['building_type']
+        position_x = data['position_x']
+        position_y = data['position_y']
+
+        # Check player level requirement
+        if player.level < building_type.min_level:
+            raise serializers.ValidationError(
+                f"Player level {building_type.min_level} required (current: {player.level})"
+            )
+
+        # Check if building fits within grid boundaries
+        if position_x < 0 or position_y < 0:
+            raise serializers.ValidationError("Building position cannot be negative")
+
+        if position_x + building_type.width > player.grid_size_x:
+            raise serializers.ValidationError(
+                f"Building extends beyond grid width (position: {position_x}, "
+                f"building width: {building_type.width}, grid width: {player.grid_size_x})"
+            )
+
+        if position_y + building_type.height > player.grid_size_y:
+            raise serializers.ValidationError(
+                f"Building extends beyond grid height (position: {position_y}, "
+                f"building height: {building_type.height}, grid height: {player.grid_size_y})"
+            )
 
         # Check if player has enough resources
         if player.coins < building_type.cost_coins:
@@ -110,13 +134,18 @@ class BuildingCreateSerializer(serializers.ModelSerializer):
         if player.food < building_type.cost_food:
             raise serializers.ValidationError("Not enough food")
 
-        # Check if position is already occupied
-        if Building.objects.filter(
-            player=player,
-            position_x=data['position_x'],
-            position_y=data['position_y']
-        ).exists():
-            raise serializers.ValidationError("Position already occupied")
+        # Check if position is already occupied by checking for overlaps
+        existing_buildings = Building.objects.filter(player=player)
+        for existing in existing_buildings:
+            # Check if the new building overlaps with existing building
+            if not (position_x + building_type.width <= existing.position_x or
+                    position_x >= existing.position_x + existing.building_type.width or
+                    position_y + building_type.height <= existing.position_y or
+                    position_y >= existing.position_y + existing.building_type.height):
+                raise serializers.ValidationError(
+                    f"Building overlaps with existing {existing.building_type.name} "
+                    f"at position ({existing.position_x}, {existing.position_y})"
+                )
 
         return data
 
