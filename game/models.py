@@ -232,6 +232,43 @@ class Building(models.Model):
 
         return materials_collected
 
+    def get_time_remaining(self):
+        """Get seconds remaining until building is complete (0 if complete or ready)"""
+        if self.is_built:
+            return 0
+
+        if not self.build_started:
+            return self.building_type.build_time
+
+        now = timezone.now()
+        elapsed = (now - self.build_started).total_seconds()
+        remaining = max(0, self.building_type.build_time - elapsed)
+        return int(remaining)
+
+    def get_completion_percentage(self):
+        """Get construction progress as percentage (0-100)"""
+        if self.is_built:
+            return 100
+
+        if not self.build_started or self.building_type.build_time == 0:
+            return 0
+
+        now = timezone.now()
+        elapsed = (now - self.build_started).total_seconds()
+        percentage = min(100, (elapsed / self.building_type.build_time) * 100)
+        return round(percentage, 1)
+
+    def get_estimated_completion(self):
+        """Get estimated completion datetime"""
+        if self.is_built:
+            return self.build_completed
+
+        if not self.build_started:
+            return None
+
+        from datetime import timedelta
+        return self.build_started + timedelta(seconds=self.building_type.build_time)
+
     def check_completion(self):
         """Check if building construction is complete"""
         if not self.is_built and self.build_started:

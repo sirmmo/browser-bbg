@@ -81,12 +81,28 @@ class BuildingTypeSerializer(serializers.ModelSerializer):
 
 class BuildingSerializer(serializers.ModelSerializer):
     building_type_detail = BuildingTypeSerializer(source='building_type', read_only=True)
+    time_remaining = serializers.SerializerMethodField()
+    completion_percentage = serializers.SerializerMethodField()
+    estimated_completion = serializers.SerializerMethodField()
 
     class Meta:
         model = Building
         fields = ['id', 'building_type', 'building_type_detail', 'position_x', 'position_y',
-                  'is_built', 'build_started', 'build_completed', 'created_at']
+                  'is_built', 'build_started', 'build_completed', 'created_at',
+                  'time_remaining', 'completion_percentage', 'estimated_completion']
         read_only_fields = ['is_built', 'build_started', 'build_completed']
+
+    def get_time_remaining(self, obj):
+        """Get seconds remaining until construction is complete"""
+        return obj.get_time_remaining()
+
+    def get_completion_percentage(self, obj):
+        """Get construction progress percentage (0-100)"""
+        return obj.get_completion_percentage()
+
+    def get_estimated_completion(self, obj):
+        """Get estimated completion datetime"""
+        return obj.get_estimated_completion()
 
 
 class BuildingCreateSerializer(serializers.ModelSerializer):
