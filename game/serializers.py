@@ -34,6 +34,42 @@ class RegisterSerializer(serializers.ModelSerializer):
         return user
 
 
+class CustomRegisterSerializer(serializers.Serializer):
+    """Custom registration serializer for dj-rest-auth"""
+    email = serializers.EmailField(required=True)
+    password1 = serializers.CharField(write_only=True)
+    password2 = serializers.CharField(write_only=True)
+    username = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_email(self, email):
+        if User.objects.filter(email=email).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return email
+
+    def validate(self, data):
+        if data['password1'] != data['password2']:
+            raise serializers.ValidationError("Passwords do not match.")
+        return data
+
+    def get_cleaned_data(self):
+        return {
+            'email': self.validated_data.get('email', ''),
+            'password1': self.validated_data.get('password1', ''),
+            'username': self.validated_data.get('username', '') or self.validated_data.get('email', '').split('@')[0],
+        }
+
+    def save(self, request):
+        cleaned_data = self.get_cleaned_data()
+        user = User.objects.create_user(
+            username=cleaned_data['username'],
+            email=cleaned_data['email'],
+            password=cleaned_data['password1']
+        )
+        # Create player profile
+        PlayerProfile.objects.create(user=user)
+        return user
+
+
 class PartySerializer(serializers.ModelSerializer):
     member_count = serializers.SerializerMethodField()
 

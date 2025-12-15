@@ -11,6 +11,7 @@ from .views import (
     CraftingRecipeViewSet, PlayerItemViewSet,
     TradeOfferViewSet, TerritorialExpansionViewSet, GameTickViewSet
 )
+from .auth_views import google_login, google_oauth_config
 
 router = DefaultRouter()
 router.register(r'profile', PlayerProfileViewSet, basename='profile')
@@ -37,5 +38,8 @@ urlpatterns = [
     path('register/', register, name='register'),
     path('login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # Google OAuth
+    path('google/login/', google_login, name='google_login'),
+    path('google/config/', google_oauth_config, name='google_config'),
     path('', include(router.urls)),
 ]
