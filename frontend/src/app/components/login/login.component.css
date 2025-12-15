@@ -82,6 +82,36 @@ label {
   cursor: not-allowed;
 }
 
+.google-signin-section {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+.divider {
+  text-align: center;
+  margin: 1.5rem 0;
+  position: relative;
+}
+
+.divider::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #ddd;
+}
+
+.divider span {
+  background: white;
+  padding: 0 1rem;
+  position: relative;
+  color: #999;
+  font-size: 0.875rem;
+}
+
 .register-link {
   text-align: center;
   margin-top: 1rem;

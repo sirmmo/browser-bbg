@@ -3,6 +3,16 @@
     <h1>Base Builder Game</h1>
     <h2>Login</h2>
 
+    <!-- Google Sign-In Button -->
+    <div class="google-signin-section">
+      <div id="google-signin-button"></div>
+    </div>
+
+    <div class="divider">
+      <span>OR</span>
+    </div>
+
+    <!-- Traditional Login Form -->
     <form (ngSubmit)="login()" #loginForm="ngForm">
       <div class="form-group">
         <label for="username">Username</label>
@@ -13,6 +23,7 @@
           name="username"
           required
           class="form-control"
+          [disabled]="isLoading"
         >
       </div>
 
@@ -25,13 +36,14 @@
           name="password"
           required
           class="form-control"
+          [disabled]="isLoading"
         >
       </div>
 
       <div class="error" *ngIf="error">{{ error }}</div>
 
-      <button type="submit" [disabled]="!loginForm.form.valid" class="btn-primary">
-        Login
+      <button type="submit" [disabled]="!loginForm.form.valid || isLoading" class="btn-primary">
+        {{ isLoading ? 'Logging in...' : 'Login' }}
       </button>
     </form>
 
